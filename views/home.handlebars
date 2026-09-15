@@ -1,0 +1,20 @@
+<p class="lead">A web app that lets you read articles on popular news sites that get hidden behind paywalls.</p>
+
+<div class="row">
+    {{#each sources}}
+        <div class="col-sm-6 col-lg-4 mb-4">
+            <a href="/article?source={{domain}}">
+                <div class="card p-5 rounded-3 {{backgroundClass}} {{textClass}}">
+                    <figure class="mb-0">
+                        <blockquote class="blockquote mb-1 {{textClass}}">
+                            <p>{{name}}</p>
+                        </blockquote>
+                        <figcaption class="mb-0 {{textClass}}">
+                            {{domain}}
+                        </figcaption>
+                    </figure>
+                </div>
+            </a>
+        </div>
+    {{/each}}
+</div>

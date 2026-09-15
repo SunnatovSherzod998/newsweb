@@ -1,0 +1,128 @@
+﻿const dotenv = require('dotenv');
+dotenv.config();
+const express = require('express');
+const { engine } = require('express-handlebars');
+const parse = require('./parser');
+const newsSourceMapping = require('./news-source-map.json');
+
+const app = express();
+const port = process.env.PORT || 3000;
+const sourceCardColors = [
+    'bg-primary',
+    'bg-success',
+    'bg-info',
+    'bg-danger',
+    'bg-warning',
+    'bg-secondary',
+    'bg-dark',
+    'bg-light'
+];
+const darkTextBackgrounds = new Set(['bg-warning', 'bg-light']);
+
+app.use(express.urlencoded({ extended: true }));
+app.use(express.static(`${__dirname}/public`));
+
+app.engine('handlebars', engine({
+    helpers: {
+        block: (name, options) => {
+            const context = options.data.root;
+            context._blocks = context._blocks || {};
+            context._blocks[name] = options.fn(context);
+            return null;
+        },
+        contentFor: (name, options) => {
+            const context = options.data.root;
+            return (context._blocks && context._blocks[name]) || '';
+        },
+    },
+}));
+app.set('view engine', 'handlebars');
+app.set('views', './views');
+
+app.get('/', (req, res) => {
+    const sources = Object.entries(newsSourceMapping).map(([domain, source], index) => {
+        const backgroundClass = sourceCardColors[index % sourceCardColors.length];
+        const textClass = darkTextBackgrounds.has(backgroundClass) ? 'text-dark' : 'text-white';
+        return {
+            domain,
+            name: source.name,
+            backgroundClass,
+            textClass
+        };
+    });
+    res.render('home', { sources });
+});
+
+app.get('/article', (req, res) => {
+    const { source } = req.query;
+    const sourceText = newsSourceMapping[source];
+    if (!sourceText || !sourceText.name) {
+        res.render('404');
+    }
+    res.render('article', { source, sourceText: sourceText.name });
+});
+
+app.get('/read', async (req, res) => {
+    try {
+        let { source, url } = req.query;
+        if (!source || !url) {
+            throw new Error('Source or URL not provided');
+        }
+
+        const sourceMapping = newsSourceMapping[source];
+        if (!sourceMapping) {
+            throw new Error(`Unknown source: ${source}`);
+        }
+
+        const renderArticle = (articleText, articleHeadline) => {
+            const formattedText = parse.formatArticleText(
+                articleText,
+                req.headers['x-forwarded-proto'] || req.protocol
+            );
+            res.render('read', {
+                source,
+                sourceText: sourceMapping.name,
+                articleText: formattedText,
+                articleHeadline
+            });
+        };
+
+        const tryParseArticle = async (url, method) => {
+            const { articleText, articleHeadline } = await parse.getContent(source, url, method);
+            renderArticle(articleText, articleHeadline);
+            return true;
+        };
+
+        for (let method of sourceMapping.method) {
+            try {
+                console.log(`Trying method: ${method}`);
+                if (await tryParseArticle(url, method)) return;
+            } catch (error) {
+                // retry with trailing slash if missing
+                if (error && !url.endsWith('/')) {
+                    try {
+                        const urlWithSlash = `${url}/`;
+                        if (await tryParseArticle(urlWithSlash, method)) return;
+                    } catch (error2) {
+                        console.log('Error parsing article with trailing slash:', error2);
+                    }
+                } else {
+                    console.log('Error parsing article:', error);
+                }
+            }
+        }
+
+        throw new Error('No article found');
+    } catch (error) {
+        console.error('Read route error:', error.message);
+        res.render('article-not-found');
+    }
+});
+
+app.get('/*', (req, res) => {
+    res.render('404');
+});
+
+app.listen(port, () => {
+    console.log(`Listening on host: http://localhost:${port}`);
+});
